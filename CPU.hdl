@@ -1,0 +1,78 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+/**
+ * The Hack Central Processing unit (CPU).
+ * Parses the binary code in the instruction input and executes it according to the
+ * Hack machine language specification. In the case of a C-instruction, computes the
+ * function specified by the instruction. If the instruction specifies to read a memory
+ * value, the inM input is expected to contain this value. If the instruction specifies
+ * to write a value to the memory, sets the outM output to this value, sets the addressM
+ * output to the target address, and asserts the writeM output (when writeM == 0, any
+ * value may appear in outM).
+ * If the reset input is 0, computes the address of the next instruction and sets the
+ * pc output to that value. If the reset input is 1, sets pc to 0.
+ * Note: The outM and writeM outputs are combinational: they are affected by the
+ * instruction's execution during the current cycle. The addressM and pc outputs are
+ * clocked: although they are affected by the instruction's execution, they commit to
+ * their new values only in the next cycle.
+ */
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to restart the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // Address of next instruction
+
+    PARTS:
+
+ // mapping
+    Or16(a=instruction, b=false, out[15]=cInst,
+         out[0..14]=value,
+         out[12]=addr,
+         out[11]=compZx, out[10]=compNx, out[9]=compZy, out[8]=compNy, out[7]=compF, out[6]=compNo,
+         out[5]=destA, out[4]=destD, out[3]=destM, out[2]=jumpNg, out[1]=jumpZr, out[0]=jumpPs);
+    Not(in=cInst, out=aInst);
+    // load pin
+    Or(a=aInst, b=destA, out=aRegLoad);
+    And(a=cInst, b=destD, out=dRegLoad);
+    And(a=cInst, b=destM, out=writeM);
+    // jump
+    And(a=aluNg, b=jumpNg, out=loadPc0);
+    And(a=aluZr, b=jumpZr, out=loadPc1);
+    Or(a=aluNg, b=aluZr, out=aluZN);
+    Not(in=aluZN, out=aluPs);
+    And(a=aluPs, b=jumpPs, out=loadPc2);
+    Or8Way(in[0]=loadPc0, in[1]=loadPc1, in[2]=loadPc2, out=loadPc3);
+    And(a=cInst, b=loadPc3, out=loadPc);
+
+
+    /*
+     * A-register
+     */
+    Mux16(a=aluOut, b[0..14]=value, b[15]=false, sel=aInst, out=aRegIn);
+    ARegister(in=aRegIn,load=aRegLoad, out=aReg, out[0..14]=addressM);
+    Mux16(a=aReg, b=inM, sel=addr, out=aRegAddr);
+
+    /*
+     * D-register
+     */
+    DRegister(in=aluOut,load=dRegLoad, out=dReg);
+
+    /*
+     * ALU
+     */
+    ALU(x=dReg, y=aRegAddr, zx=compZx, nx=compNx, zy=compZy, ny=compNy, f=compF, no=compNo, out=aluOut, out=outM, zr=aluZr, ng=aluNg);
+
+    /*
+     * Program Counter and Fetch logit
+     */
+    PC(in=aReg, load=loadPc, inc=true, reset=reset, out[0..14]=pc);
+}
